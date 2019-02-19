@@ -1,0 +1,244 @@
+options
+{
+  IGNORE_CASE = false;
+  MULTI=true;
+  VISITOR = true;
+  STATIC = false;
+  TRACK_TOKENS = true;
+}
+
+PARSER_BEGIN(HDLParser)
+package hdlparser;
+import hdlparser.ExecutionVisitor.ExecutionException;
+import hdlparser.CheckVisitor.HDLCheckException;
+import java.nio.charset.StandardCharsets;
+
+import java.io.*;
+import java.util.HashMap;
+import symbols.Symbol;
+
+public class HDLParser
+{
+  
+  public static void main(String[] args) throws ParseException, FileNotFoundException
+  {
+ 
+    if (args.length < 1)
+    {
+      System.out.println("Please pass in the filename.");
+      System.exit(1);
+    }
+
+    HDLParser parser = new HDLParser(new FileInputStream(args[0]));
+
+
+    parser.jj_input_stream.setTabSize(4);
+    
+    SimpleNode root = parser.file();
+    //root.dump(" ");
+
+	HashMap<String, Symbol> ST = new HashMap();
+	CheckVisitor cv = new CheckVisitor(ST);
+
+	try {
+        root.jjtAccept(cv, null);
+    } catch (HDLCheckException e) {
+                System.err.println(e.getMessage());
+                return;
+    }
+    
+    
+    ExecutionVisitor ev = new ExecutionVisitor();
+
+    try {
+      	root.jjtAccept(ev, ST);
+    } catch (ExecutionException e) {
+		System.err.println(e.getMessage());
+    }
+    System.out.println(ST);
+  }
+  public static SimpleNode parseFile(String file) throws ParseException, FileNotFoundException {
+	HDLParser parser = new HDLParser(new FileInputStream(file));
+    parser.jj_input_stream.setTabSize(4);
+    return parser.file();
+  }
+  public static SimpleNode parseString(String hdlStr) throws ParseException {
+	HDLParser parser = new HDLParser(new ByteArrayInputStream(hdlStr.getBytes(StandardCharsets.UTF_8)));
+    parser.jj_input_stream.setTabSize(4);
+    return parser.file();
+  }
+}
+
+PARSER_END(HDLParser)
+
+SKIP:   /* Whitespace, Comments */
+{
+  "\t"
+| "\n"
+| "\r"
+| " "
+| < "//" (~["\n","\r"])* ("\n" | "\r" | "\r\n") >
+}
+
+TOKEN:
+{
+  <OP: "+" | "-" | "&" | "|" | "^">
+| <NOT: "~">
+| <REL_OP:  "==" | "!=">
+| <NUM: (["0"-"9"])+>
+| <HEX_LIT: "0x" (["0"-"9","a"-"f","A"-"F"])+>
+| <BIN_LIT: "0b" (["0"-"1"])+>
+|  <STRING: "\""  ("\\" ("\\" | "n" | "r" | "'") | ~["\\","\n","\r","'"] )* "\"">
+}
+
+SimpleNode file(): {
+}
+{
+	(declaration())* [ block() ] <EOF>
+	{
+		return jjtThis;
+	}
+}
+
+void block(): {
+}
+{
+	(
+		assignment() | if_stmt() | set_label()
+	)+
+}
+void if_stmt(): {
+}
+{
+	"if" expr() "{" block() "}" (LOOKAHEAD(2) else_if_stmt())* [ else_stmt() ]
+}
+void else_if_stmt(): {
+}
+{
+	"else" "if" expr() "{" block() "}"
+}
+void else_stmt(): {
+}
+{
+	"else" "{" block() "}"
+}
+void declaration(): {
+  Token t;
+}
+{
+  	(t = "input" | t= "output" | t="signal")
+	{
+	   jjtThis.value = t.image;
+	}
+	["[" number() "]"] 
+	id() ("," id())* ";"
+}
+void assignment(): {
+}
+{
+	target() (":" target())* "=" expr() ";"
+}
+void target(): {
+}
+{
+	id() [ index() ]
+}
+void index(): {
+	Token t;
+}
+{
+	"[" number() [(".."|":") number()] "]"
+}
+void expr(): {
+}
+{
+	subexpr() (":" subexpr())*
+}
+void subexpr() #void: {
+	Token t;
+}
+{
+	term()
+	(
+	  t = <REL_OP> term()
+	  {
+		 jjtThis.value = t.image;
+	  }
+	  #subexpr(2)
+	)*
+}
+void term() #void: {
+  Token t;
+}
+{
+	subterm()
+	(
+	  t = <OP> subterm()
+	  {
+		 jjtThis.value = t.image;
+	  }
+	  #term(2)
+	)*
+}
+void subterm(): {
+}
+{
+  	{
+		jjtThis.value = false;
+  	}
+	[<NOT> {
+		jjtThis.value = true;
+	}]
+	primary() [index()]
+}
+void primary() #void: {
+}
+{
+	id() | hex() | bin() | number() | ( "(" expr() ")" )
+}
+String id(): {
+  Token t;
+}
+{
+	t = <ID> {
+		jjtThis.value = t.image;
+		return t.image;
+	}
+}
+void number(): {
+  Token t;
+}
+{
+	t = <NUM> {
+		jjtThis.value = Integer.parseInt(t.image);
+	}
+}
+void hex(): {
+  Token t;
+}
+{
+	t = <HEX_LIT> {
+		jjtThis.value = t.image.substring(2);
+	}
+}
+void bin(): {
+  Token t;
+}
+{
+	t = <BIN_LIT> {
+		jjtThis.value = t.image.substring(2);
+	}
+}
+void set_label(): {
+  Token t;
+}
+{
+	"label"
+	t = <STRING> {
+		jjtThis.value = t.image.substring(1,t.image.length()-1);
+	}
+	";"
+}
+TOKEN: {
+	<ID: ["a"-"z","A"-"Z","_"] ( ["a"-"z","A"-"Z","_","0"-"9"] )* >
+}

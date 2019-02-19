@@ -1,0 +1,142 @@
+options
+{
+  IGNORE_CASE = false;
+  MULTI=true;
+  VISITOR = true;
+  STATIC = false;
+  TRACK_TOKENS = true;
+}
+
+PARSER_BEGIN(MemParser)
+package memparser;
+import java.nio.charset.StandardCharsets;
+
+import java.io.*;
+import simulationEngine.Memory;
+public class MemParser
+{
+  
+  public static void main(String[] args) throws ParseException, FileNotFoundException
+  {
+ 
+    if (args.length < 1)
+    {
+      System.out.println("Please pass in the filename.");
+      System.exit(1);
+    }
+
+    MemParser parser = new MemParser(new FileInputStream(args[0]));
+
+    parser.jj_input_stream.setTabSize(4);
+    
+    SimpleNode root = parser.file();
+    //root.dump(" ");
+
+    MemoryVisitor mv = new MemoryVisitor();
+    Memory m = new Memory(4,8);
+	root.jjtAccept(mv, m);
+	m.dump();
+  }
+  public static SimpleNode parseFile(String file) throws ParseException, FileNotFoundException {
+	MemParser parser = new MemParser(new FileInputStream(file));
+    parser.jj_input_stream.setTabSize(4);
+    return parser.file();
+  }
+  public static SimpleNode parseString(String hdlStr) throws ParseException {
+	MemParser parser = new MemParser(new ByteArrayInputStream(hdlStr.getBytes(StandardCharsets.UTF_8)));
+    parser.jj_input_stream.setTabSize(4);
+    return parser.file();
+  }
+  public static String parseNumberToBinary(String num) throws ParseException {
+	MemParser parser = new MemParser(new ByteArrayInputStream(num.getBytes(StandardCharsets.UTF_8)));
+    return parser.number();
+  }
+}
+
+PARSER_END(MemParser)
+
+SKIP:   /* Whitespace, Comments */
+{
+  "\t"
+| "\n"
+| "\r"
+| " "
+| < "//" (~["\n","\r"])* ("\n" | "\r" | "\r\n") >
+}
+
+TOKEN:
+{
+  <NUM: (["0"-"9"])+>
+| <HEX_LIT: "0x" (["0"-"9","a"-"f","A"-"F"])+>
+| <BIN_LIT: "0b" (["0"-"1"])+>
+}
+
+SimpleNode file(): {
+}
+{
+	(default_stmt() | addr_stmt())* <EOF>
+	{
+		return jjtThis;
+	}
+}
+SimpleNode default_stmt(): {
+}
+{
+	"default" ":" ( number() ) ";"
+	{
+		return jjtThis;
+	}
+}
+SimpleNode addr_stmt(): {
+}
+{
+  	{
+		jjtThis.value = false;
+  	  }
+	number() ":" ( ["!" {
+		jjtThis.value = true;
+	}
+	]
+	 number() ) ";"
+	{
+		return jjtThis;
+	}
+}
+//stores binary string of input number (inefficient, but you know, 2nd design goal...)
+String number(): {
+  Token t;
+}
+{
+	(	  t = <NUM> {
+		jjtThis.value = Integer.toBinaryString(Integer.parseInt(t.image));  //still problematic for overflow...
+	}
+| 	t = <HEX_LIT> {
+		String binStr = "";
+		for (char c  : t.image.substring(2).toCharArray()) {
+			if (c == '0') binStr += "0000";
+			if (c == '1') binStr += "0001";
+			if (c == '2') binStr += "0010";
+			if (c == '3') binStr += "0011";
+			if (c == '4') binStr += "0100";
+			if (c == '5') binStr += "0101";
+			if (c == '6') binStr += "0110";
+			if (c == '7') binStr += "0111";
+			if (c == '8') binStr += "1000";
+			if (c == '9') binStr += "1001";
+			if (c == 'a' || c == 'A') binStr += "1010";
+			if (c == 'b' || c == 'B') binStr += "1011";
+			if (c == 'c' || c == 'C') binStr += "1100";
+			if (c == 'd' || c == 'D') binStr += "1101";
+			if (c == 'e' || c == 'E') binStr += "1110";
+			if (c == 'f' || c == 'F') binStr += "1111";
+		}
+		jjtThis.value = binStr;
+	}
+| 	t = <BIN_LIT> {
+		jjtThis.value = t.image.substring(2);
+	}
+)
+{
+  return (String)jjtThis.value;
+}
+}
